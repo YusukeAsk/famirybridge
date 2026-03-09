@@ -1,8 +1,6 @@
 import { Resend } from "resend";
 import { NextRequest, NextResponse } from "next/server";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 export async function POST(req: NextRequest) {
   try {
     const { name, email, message } = await req.json();
@@ -32,15 +30,18 @@ export async function POST(req: NextRequest) {
       timeZone: "Asia/Tokyo",
     });
 
+    const apiKey = process.env.RESEND_API_KEY;
     const from = process.env.RESEND_FROM;
     const notifyEmail = process.env.NOTIFY_EMAIL;
-    if (!from || !notifyEmail || !process.env.RESEND_API_KEY) {
-      console.error("Missing RESEND_FROM, NOTIFY_EMAIL, or RESEND_API_KEY");
+    if (!apiKey || !from || !notifyEmail) {
+      console.error("Missing RESEND_API_KEY, RESEND_FROM, or NOTIFY_EMAIL");
       return NextResponse.json(
         { error: "送信に失敗しました" },
         { status: 500 }
       );
     }
+
+    const resend = new Resend(apiKey);
 
     // ── ① 管理者への通知メール ────────────────────────────────────────
     await resend.emails.send({
