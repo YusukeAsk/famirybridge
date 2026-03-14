@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -30,22 +30,34 @@ export async function POST(req: NextRequest) {
       timeZone: "Asia/Tokyo",
     });
 
-    const apiKey = process.env.RESEND_API_KEY;
-    const from = process.env.RESEND_FROM;
+    const mailFrom = process.env.MAIL_FROM;
     const notifyEmail = process.env.NOTIFY_EMAIL;
-    if (!apiKey || !from || !notifyEmail) {
-      console.error("Missing RESEND_API_KEY, RESEND_FROM, or NOTIFY_EMAIL");
+    const smtpHost = process.env.SMTP_HOST;
+    const smtpPort = process.env.SMTP_PORT;
+    const smtpUser = process.env.SMTP_USER;
+    const smtpPass = process.env.SMTP_PASS;
+
+    if (!mailFrom || !notifyEmail || !smtpHost || !smtpPort || !smtpUser || smtpPass === undefined) {
+      console.error("Missing MAIL_FROM, NOTIFY_EMAIL, or SMTP_* env vars");
       return NextResponse.json(
         { error: "送信に失敗しました" },
         { status: 500 }
       );
     }
 
-    const resend = new Resend(apiKey);
+    const secure = process.env.SMTP_SECURE !== "false";
+    const port = parseInt(smtpPort, 10) || 587;
+
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port,
+      secure,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
 
     // ── ① 管理者への通知メール ────────────────────────────────────────
-    await resend.emails.send({
-      from,
+    await transporter.sendMail({
+      from: mailFrom,
       to: notifyEmail,
       subject: `【FamilyBridge】新規ウェイティングリスト登録 — ${name} 様`,
       html: `
@@ -60,8 +72,8 @@ export async function POST(req: NextRequest) {
     });
 
     // ── ② 登録者への受付完了メール ───────────────────────────────────
-    await resend.emails.send({
-      from,
+    await transporter.sendMail({
+      from: mailFrom,
       to: email,
       subject: "【FamilyBridge】先行登録を受け付けました",
       html: `
