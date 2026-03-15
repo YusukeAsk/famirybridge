@@ -55,7 +55,22 @@ export async function POST(req: NextRequest) {
       auth: { user: smtpUser, pass: smtpPass },
     });
 
-    // ── ① 管理者への通知メール ────────────────────────────────────────
+    // ── ① 登録者への受付完了メール（先に送信） ───────────────────────────
+    await transporter.sendMail({
+      from: mailFrom,
+      to: email,
+      subject: "【FamilyBridge】先行登録を受け付けました",
+      html: `
+        <p>${escapeHtml(name)} 様</p>
+        <p>FamilyBridge の先行登録を受け付けました。<br>正式リリース時に最優先でご案内いたします。</p>
+        <p>引き続きよろしくお願いいたします。<br><strong>FamilyBridge チーム</strong></p>
+        <hr>
+        <p style="font-size:12px;color:#888;">このメールに心当たりのない場合は、そのまま破棄してください。</p>
+      `,
+    });
+    console.log("Waitlist: registrant confirmation sent to", maskEmail(email));
+
+    // ── ② 管理者への通知メール ────────────────────────────────────────
     await transporter.sendMail({
       from: mailFrom,
       to: notifyEmail,
@@ -70,20 +85,7 @@ export async function POST(req: NextRequest) {
         </table>
       `,
     });
-
-    // ── ② 登録者への受付完了メール ───────────────────────────────────
-    await transporter.sendMail({
-      from: mailFrom,
-      to: email,
-      subject: "【FamilyBridge】先行登録を受け付けました",
-      html: `
-        <p>${escapeHtml(name)} 様</p>
-        <p>FamilyBridge の先行登録を受け付けました。<br>正式リリース時に最優先でご案内いたします。</p>
-        <p>引き続きよろしくお願いいたします。<br><strong>FamilyBridge チーム</strong></p>
-        <hr>
-        <p style="font-size:12px;color:#888;">このメールに心当たりのない場合は、そのまま破棄してください。</p>
-      `,
-    });
+    console.log("Waitlist: admin notification sent to", maskEmail(notifyEmail));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
@@ -102,4 +104,11 @@ function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+/** ログ用にメールアドレスをマスク（例: a***@example.com） */
+function maskEmail(email: string): string {
+  const at = email.indexOf("@");
+  if (at <= 0) return "***";
+  return email[0] + "***" + email.slice(at);
 }
