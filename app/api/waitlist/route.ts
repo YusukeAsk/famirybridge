@@ -47,16 +47,11 @@ export async function POST(req: NextRequest) {
 
     const secure = process.env.SMTP_SECURE !== "false";
     const port = parseInt(smtpPort, 10) || 587;
+    const smtpOptions = { host: smtpHost, port, secure, auth: { user: smtpUser, pass: smtpPass } };
 
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port,
-      secure,
-      auth: { user: smtpUser, pass: smtpPass },
-    });
-
-    // ── ① 登録者への受付完了メール（先に送信） ───────────────────────────
-    await transporter.sendMail({
+    // ── ① 登録者への受付完了メール（専用の接続で送信） ─────────────────────
+    const userTransporter = nodemailer.createTransport(smtpOptions);
+    await userTransporter.sendMail({
       from: mailFrom,
       to: email,
       subject: "【FamilyBridge】先行登録を受け付けました",
@@ -68,24 +63,36 @@ export async function POST(req: NextRequest) {
         <p style="font-size:12px;color:#888;">このメールに心当たりのない場合は、そのまま破棄してください。</p>
       `,
     });
+    userTransporter.close();
     console.log("Waitlist: registrant confirmation sent to", maskEmail(email));
 
-    // ── ② 管理者への通知メール ────────────────────────────────────────
-    await transporter.sendMail({
-      from: mailFrom,
-      to: notifyEmail,
-      subject: `【FamilyBridge】新規ウェイティングリスト登録 — ${name} 様`,
-      html: `
-        <h2 style="color:#1a3a5c;">新規ウェイティングリスト登録</h2>
-        <table style="border-collapse:collapse;width:100%;">
-          <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">お名前</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(name)}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">メールアドレス</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(email)}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">ひとこと</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(message || "（未入力）")}</td></tr>
-          <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">登録日時</td><td style="padding:8px;border:1px solid #e2e8f0;">${jstTime}</td></tr>
-        </table>
-      `,
-    });
-    console.log("Waitlist: admin notification sent to", maskEmail(notifyEmail));
+    // 別個の送信のため少し間隔を空ける
+    await sleep(800);
+
+    // ── ② 管理者への通知メール（別の接続で単独送信） ───────────────────────
+    const adminTransporter = nodemailer.createTransport(smtpOptions);
+    try {
+      await adminTransporter.sendMail({
+        from: mailFrom,
+        to: notifyEmail,
+        subject: `【FamilyBridge】新規ウェイティングリスト登録 — ${name} 様`,
+        html: `
+          <h2 style="color:#1a3a5c;">新規ウェイティングリスト登録</h2>
+          <table style="border-collapse:collapse;width:100%;">
+            <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">お名前</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(name)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">メールアドレス</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(email)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">ひとこと</td><td style="padding:8px;border:1px solid #e2e8f0;">${escapeHtml(message || "（未入力）")}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e2e8f0;font-weight:bold;">登録日時</td><td style="padding:8px;border:1px solid #e2e8f0;">${jstTime}</td></tr>
+          </table>
+        `,
+      });
+      console.log("Waitlist: admin notification sent to", maskEmail(notifyEmail));
+    } catch (adminError) {
+      console.error("Waitlist: admin notification failed", adminError);
+      // 管理者送信失敗でもユーザーには成功を返す
+    } finally {
+      adminTransporter.close();
+    }
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (error) {
@@ -104,6 +111,11 @@ function escapeHtml(str: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+/** 指定ミリ秒だけ待つ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** ログ用にメールアドレスをマスク（例: a***@example.com） */
