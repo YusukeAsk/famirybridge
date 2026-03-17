@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
 
     const mailFrom = process.env.MAIL_FROM;
     const notifyEmail = process.env.NOTIFY_EMAIL;
+    const notifyEmailFallback = process.env.NOTIFY_EMAIL_FALLBACK;
     const smtpHost = process.env.SMTP_HOST;
     const smtpPort = process.env.SMTP_PORT;
     const smtpUser = process.env.SMTP_USER;
@@ -72,9 +73,20 @@ export async function POST(req: NextRequest) {
     // ── ② 管理者への通知メール（別の接続で単独送信） ───────────────────────
     const adminTransporter = nodemailer.createTransport(smtpOptions);
     try {
+      const adminTo =
+        notifyEmail.trim().toLowerCase() === mailFrom.trim().toLowerCase() &&
+        notifyEmailFallback
+          ? notifyEmailFallback
+          : notifyEmail;
+
       await adminTransporter.sendMail({
         from: mailFrom,
-        to: notifyEmail,
+        to: adminTo,
+        replyTo: email,
+        headers: {
+          "Auto-Submitted": "auto-generated",
+          "X-FamilyBridge-Form": "waitlist",
+        },
         subject: `【FamilyBridge】新規ウェイティングリスト登録 — ${name} 様`,
         html: `
           <h2 style="color:#1a3a5c;">新規ウェイティングリスト登録</h2>
@@ -86,7 +98,7 @@ export async function POST(req: NextRequest) {
           </table>
         `,
       });
-      console.log("Waitlist: admin notification sent to", maskEmail(notifyEmail));
+      console.log("Waitlist: admin notification sent to", maskEmail(adminTo));
     } catch (adminError) {
       console.error("Waitlist: admin notification failed", adminError);
       // 管理者送信失敗でもユーザーには成功を返す
